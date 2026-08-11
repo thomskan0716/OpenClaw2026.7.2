@@ -1,0 +1,232 @@
+# Docker Compose configuration for local development with Nginx
+# Usage: docker compose -f docker-compose.local.yml up -d
+
+services:
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-openclaw:local}
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Uncomment to include specific bundled plugins
+        # OPENCLAW_EXTENSIONS: "matrix,telegram,discord,slack"
+        # Reduce memory for local builds if needed
+        # OPENCLAW_DOCKER_BUILD_NODE_OPTIONS: "--max-old-space-size=4096"
+        # OPENCLAW_DOCKER_BUILD_TSDOWN_MAX_OLD_SPACE_MB: "4096"
+    container_name: openclaw-gateway
+    hostname: openclaw-local
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      NODE_ENV: development
+      
+      # Container-side paths (do not change these)
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      
+      # Gateway configuration
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-1}
+      
+      # OpenTelemetry (optional)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-openclaw-local}
+      
+      # Custom bind configuration
+      OPENCLAW_GATEWAY_CUSTOM_BIND_HOST: "0.0.0.0"
+      
+      # Ollama (local AI on host PC)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-ollama-local}
+      
+      # AI Provider credentials (optional)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+      
+      # Channel tokens
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      
+      # Timezone
+      TZ: ${OPENCLAW_TZ:-Asia/Taipei}
+      
+    volumes:
+      # Persistent data volumes (local data directory)
+      - ./data/config:/home/node/.openclaw
+      - ./data/workspace:/home/node/.openclaw/workspace
+      - ./data/secrets:/home/node/.config/openclaw
+      
+      ## OPTIONAL: Uncomment for sandbox isolation support
+      ## Requires Docker CLI in the image (build with --build-arg OPENCLAW_INSTALL_DOCKER_CLI=1)
+      # - /var/run/docker.sock:/var/run/docker.sock
+      
+      ## OPTIONAL: Uncomment for hot-reload development (source code mounting)
+      ## Warning: This bypasses the build process and directly mounts source code
+      # - ./src:/app/src:ro
+      # - ./dist:/app/dist
+      
+    ## OPTIONAL: Uncomment if mounting Docker socket for sandbox
+    # group_add:
+    #   - "${DOCKER_GID:-999}"
+    
+    # Security settings
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    
+    # Network configuration
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    
+    networks:
+      - openclaw-net
+    
+    # Process management
+    init: true
+    restart: unless-stopped
+    
+    command:
+      - node
+      - dist/index.js
+      - gateway
+      - --allow-unconfigured
+      - --bind
+      - ${OPENCLAW_GATEWAY_BIND:-custom}
+      - --port
+      - "18789"
+      - --verbose
+    
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  openclaw-cli:
+    image: ${OPENCLAW_IMAGE:-openclaw:local}
+    container_name: openclaw-cli-local
+    network_mode: "service:openclaw-gateway"
+    depends_on:
+      openclaw-gateway:
+        condition: service_healthy
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      NODE_ENV: development
+      
+      # Container-side paths
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      BROWSER: echo
+      
+      # AI Provider credentials
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+      
+      TZ: ${OPENCLAW_TZ:-Asia/Taipei}
+    
+    volumes:
+      - ./data/config:/home/node/.openclaw
+      - ./data/workspace:/home/node/.openclaw/workspace
+      - ./data/secrets:/home/node/.config/openclaw
+    
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    
+    stdin_open: true
+    tty: true
+    
+    profiles:
+      - cli  # Only start with: docker compose --profile cli up
+
+# Optional: Named volumes for persistent data (alternative to bind mounts)
+    
+    networks:
+      - openclaw-net
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: openclaw-nginx
+    restart: unless-stopped
+    depends_on:
+      openclaw-gateway:
+        condition: service_healthy
+    ports:
+      - "${NGINX_PORT:-8090}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - openclaw-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  openclaw-net:
+    driver: bridge
+# volumes:
+#   openclaw-data:
+#     driver: local
+#   openclaw-workspace:
+#     driver: local
+#   openclaw-secrets:
+#     driver: local

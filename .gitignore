@@ -281,6 +281,15 @@ changelog/fragments/
 openclaw-path-alias-*/
 /.pi/
 /C:\\openclaw/
+
+# Local development files
+# .env.local
+# docker-compose.local.yml
+# nginx.conf
+# data/
+# README.local.md
+# setup-local.bat
+# setup-local.ps1
 *.log
 *.tmp
 *.heapsnapshot
